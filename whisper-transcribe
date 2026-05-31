@@ -1,0 +1,20 @@
+#!/bin/sh
+# Wrapper: converts any audio to 16kHz mono WAV, then runs whisper-cli
+INPUT="$1"
+if [ -z "$INPUT" ]; then
+  echo "Usage: whisper-transcribe <audio-file>" >&2
+  exit 1
+fi
+
+TMPWAV=$(mktemp /tmp/whisper-XXXXXX.wav)
+trap "rm -f $TMPWAV" EXIT
+
+# Convert to 16kHz mono WAV (whisper-cli requirement)
+ffmpeg -i "$INPUT" -ar 16000 -ac 1 -c:a pcm_s16le "$TMPWAV" -y -loglevel error 2>&1
+if [ $? -ne 0 ]; then
+  echo "Error: ffmpeg conversion failed for $INPUT" >&2
+  exit 1
+fi
+
+# Run whisper-cli with multilingual model and auto language detection
+exec whisper-cli -m /opt/whisper-models/ggml-base.bin --no-timestamps -np --language auto -f "$TMPWAV"

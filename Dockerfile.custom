@@ -1,0 +1,54 @@
+# Custom OpenClaw image with whisper.cpp STT support
+# Extends the pre-built GHCR image with ffmpeg, whisper-cli, and multilingual model.
+#
+# Build:
+#   docker build -f Dockerfile.custom -t openclaw-custom:latest .
+#
+# The base image already runs as non-root user 'node' (uid 1000).
+# We switch to root for installs, then back to node.
+
+FROM ghcr.io/openclaw/openclaw:latest
+
+USER root
+
+# 1. Install ffmpeg and build tools for whisper.cpp
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ffmpeg cmake make g++ && \
+    rm -rf /var/lib/apt/lists/*
+
+# 2. Build whisper.cpp from source (CMake build system)
+#    SIMD is disabled (-march=armv8-a, no GGML_NATIVE) because Docker
+#    Desktop on macOS uses QEMU emulation for arm64 Linux containers, which
+#    crashes on advanced NEON/SVE instructions that whisper.cpp auto-enables.
+#    For native arm64 hosts (e.g. AWS Graviton), remove the CFLAGS overrides.
+RUN git clone --depth 1 https://github.com/ggerganov/whisper.cpp /tmp/whisper.cpp && \
+    cd /tmp/whisper.cpp && \
+    cmake -B build \
+      -DCMAKE_C_FLAGS="-march=armv8-a" \
+      -DCMAKE_CXX_FLAGS="-march=armv8-a" \
+      -DGGML_NATIVE=OFF \
+      -DBUILD_SHARED_LIBS=OFF && \
+    cmake --build build --config Release -j$(nproc) && \
+    cp build/bin/whisper-cli /usr/local/bin/whisper-cli && \
+    rm -rf /tmp/whisper.cpp
+
+# 3. Download whisper multilingual base model (~148MB)
+#    Supports auto language detection including Chinese, English, etc.
+#    For better accuracy at the cost of size, use ggml-small.bin (~466MB)
+#    or ggml-medium.bin (~1.5GB).
+RUN mkdir -p /opt/whisper-models && \
+    curl -L -o /opt/whisper-models/ggml-base.bin \
+      "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
+
+# 4. Install whisper-transcribe wrapper script
+COPY whisper-transcribe /usr/local/bin/whisper-transcribe
+RUN chmod +x /usr/local/bin/whisper-transcribe
+
+# 5. Remove build-only dependencies to save ~200MB
+RUN apt-get purge -y cmake make g++ && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/*
+
+# Back to non-root
+USER node

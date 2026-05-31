@@ -1,0 +1,19 @@
+services:
+  openclaw-gateway:
+    image: openclaw-custom:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.custom
+    volumes:
+      - openclaw_home:/home/node
+      - /Users/chadyang/.openclaw:/home/node/.openclaw
+      - /Users/chadyang/.openclaw/workspace:/home/node/.openclaw/workspace
+  openclaw-cli:
+    image: openclaw-custom:latest
+    restart: unless-stopped
+    volumes:
+      - openclaw_home:/home/node
+      - /Users/chadyang/.openclaw:/home/node/.openclaw
+      - /Users/chadyang/.openclaw/workspace:/home/node/.openclaw/workspace
+volumes:
+  openclaw_home:
